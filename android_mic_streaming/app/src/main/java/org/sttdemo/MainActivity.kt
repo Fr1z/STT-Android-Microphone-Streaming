@@ -1,19 +1,26 @@
 package org.sttdemo
 
+import ai.coqui.libstt.STTModel
 import android.Manifest
+import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.DocumentsContract
+import android.util.Log
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
+import androidx.documentfile.provider.DocumentFile
 import kotlinx.android.synthetic.main.activity_main.*
-import ai.coqui.libstt.STTModel
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
+
 
 class MainActivity : AppCompatActivity() {
     private var model: STTModel? = null
@@ -22,7 +29,9 @@ class MainActivity : AppCompatActivity() {
     private var isRecording: AtomicBoolean = AtomicBoolean(false)
 
     private val TFLITE_MODEL_FILENAME = "model.tflite"
-    private val SCORER_FILENAME = "huge-vocab.scorer"
+    private val SCORER_FILENAME = "scorer"
+
+    private var modelsPath = ""
 
     private fun checkAudioPermission() {
         // Permission is automatically granted on SDK < 23 upon installation.
@@ -75,7 +84,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun createModel(): Boolean {
-        val modelsPath = getExternalFilesDir(null).toString()
+
         val tfliteModelPath = "$modelsPath/$TFLITE_MODEL_FILENAME"
         val scorerPath = "$modelsPath/$SCORER_FILENAME"
 
@@ -99,15 +108,37 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 129 && resultCode == Activity.RESULT_OK) {
+            data?.data?.let { uri ->
+
+                    val docId = uri.path.toString()
+                    Log.e("STT Debug", "Si è verificato un errore: $docId")
+                    val split = docId.split(":").toTypedArray()
+                    val type = split[0]
+                    if (type.contains("primary", true)) {
+                        this.modelsPath = Environment.getExternalStorageDirectory().toString() + "/" + split[1]
+                    }
+
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         checkAudioPermission()
 
-        // Create application data directory on the device
-        val modelsPath = getExternalFilesDir(null).toString()
 
-        status.text = "Ready. Copy model files to \"$modelsPath\" if running for the first time.\n"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && this.modelsPath.isEmpty() ) {
+            val i = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+            i.addCategory(Intent.CATEGORY_DEFAULT)
+            startActivityForResult(Intent.createChooser(i, "Scegli cartella con modelli"), 129)
+        }
+
+
+        status.text = "Ready. \"$modelsPath\" contains model.\n"
     }
 
     private fun stopListening() {

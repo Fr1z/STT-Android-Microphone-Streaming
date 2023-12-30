@@ -45,4 +45,4 @@ Start recording by pressing the button and the app will transcribe the spoken te
 
 Based on your use case or the language you are using you might change the values of `BEAM_WIDTH`, `LM_ALPHA` and `LM_BETA` to improve the speech recogintion. 
 
-You can also alter the `NUM_BUFFER_ELEMENTS` to change the size of the audio data buffer that is fed into the model. 
+You can also alter the `NUM_BUFFER_ELEMENTS` to change the size of the audio data buffe trhat is fed into the model. 
