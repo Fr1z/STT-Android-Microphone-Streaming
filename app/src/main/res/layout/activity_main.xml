@@ -17,7 +17,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_weight="0"
-            android:text="Status"
+            android:text="Stato"
             android:textSize="18sp"
             android:textStyle="bold" />
 
@@ -40,7 +40,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_weight="0"
-            android:text="Transcription"
+            android:text="Trascrizione"
             android:textSize="18sp"
             android:textStyle="bold" />
 
@@ -48,7 +48,7 @@
             android:id="@+id/transcription"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Spoken text will appear here."
+            android:text="Il testo parlato sarà quì"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintLeft_toLeftOf="parent"
             app:layout_constraintRight_toRightOf="parent"
@@ -63,8 +63,11 @@
             android:id="@+id/btnStartInference"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:backgroundTint="#8BC34A"
+            android:foregroundGravity="center"
             android:onClick="onRecordClick"
-            android:text="Start" />
+            android:text="REGISTRA"
+            android:textColor="@color/colorButtonText" />
 
     </LinearLayout>
 

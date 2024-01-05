@@ -1,30 +1,34 @@
 package org.sttdemo
 
 import ai.coqui.libstt.STTModel
+import android.speech.tts.TextToSpeech
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
+import android.graphics.Color
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
-import android.provider.DocumentsContract
 import android.util.Log
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.documentfile.provider.DocumentFile
 import kotlinx.android.synthetic.main.activity_main.*
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.log
 
 
 class MainActivity : AppCompatActivity() {
+
+    private var tts: TextToSpeech? = null
+
     private var model: STTModel? = null
 
     private var transcriptionThread: Thread? = null
@@ -57,7 +61,10 @@ class MainActivity : AppCompatActivity() {
         val audioBufferSize = 2048
         val audioData = ShortArray(audioBufferSize)
 
-        runOnUiThread { btnStartInference.text = "Stop Recording" }
+        runOnUiThread {
+            btnStartInference.text = "FERMA REGISTRAZIONE"
+            btnStartInference.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#F44336")) //bottone rosso
+        }
 
         model?.let { model ->
             val streamContext = model.createStream()
@@ -81,8 +88,9 @@ class MainActivity : AppCompatActivity() {
             val decoded = model.finishStream(streamContext)
 
             runOnUiThread {
-                btnStartInference.text = "Start Recording"
+                btnStartInference.text = "REGISTRA"
                 transcription.text = decoded
+                btnStartInference.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#8BC34A")) //bottone verde
             }
 
             recorder.stop()
@@ -142,17 +150,56 @@ class MainActivity : AppCompatActivity() {
 
     }
 
+    private fun setupTTS() {
+        this.tts = TextToSpeech(
+            applicationContext,
+            { status ->
+                if (status == TextToSpeech.SUCCESS) {
+                    Log.println(Log.INFO, "TTS", "initialized TTS")
+                } else if (status == TextToSpeech.ERROR) {
+                    Log.println(Log.ERROR, "TTS", "ERROR initialize TTS")
+                } else {
+                    // missing data, install it
+
+                    val installIntent = Intent()
+                    installIntent.action = TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA
+                    startActivity(installIntent)
+
+                }
+            }, "com.google.android.tts")
+
+
+
+    }
+    private fun speakTTS(testo :String){
+        val streamToUse = AudioManager.STREAM_MUSIC
+
+        val speechPitch = 1.0f
+
+        val utteranceId = "utterance_id"
+        val params = Bundle()
+        params.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, streamToUse)
+        params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId)
+        if (this.tts != null){
+            this.tts!!.speak(testo, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+        }
+
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        setupTTS()
         checkPermission()
 
         setupModelsPath()
     }
 
     private fun stopListening() {
+
         isRecording.set(false)
+        speakTTS(transcription.text as String)
+
     }
 
     fun onRecordClick(v: View?) {
