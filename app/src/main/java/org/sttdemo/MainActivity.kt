@@ -16,10 +16,12 @@ import android.util.Log
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
 import kotlinx.android.synthetic.main.activity_main.*
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.log
 
 
 class MainActivity : AppCompatActivity() {
@@ -29,19 +31,24 @@ class MainActivity : AppCompatActivity() {
     private var isRecording: AtomicBoolean = AtomicBoolean(false)
 
     private val TFLITE_MODEL_FILENAME = "model.tflite"
-    private val SCORER_FILENAME = "scorer"
+    private val SCORER_FILENAME = "kenlm.scorer"
 
     private var modelsPath = ""
 
-    private fun checkAudioPermission() {
-        // Permission is automatically granted on SDK < 23 upon installation.
-        if (Build.VERSION.SDK_INT >= 23) {
-            val permission = Manifest.permission.RECORD_AUDIO
+    private fun checkPermission() {
+        val permissions = arrayOf(
+            Manifest.permission.READ_EXTERNAL_STORAGE,
+            Manifest.permission.RECORD_AUDIO
+        )
 
-            if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this, arrayOf(permission), 3)
-            }
+        val permissionsToRequest = permissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }.toTypedArray()
+
+        if (permissionsToRequest.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, permissionsToRequest, 3)
         }
+
     }
 
     private fun transcribe() {
@@ -119,26 +126,29 @@ class MainActivity : AppCompatActivity() {
                     val type = split[0]
                     if (type.contains("primary", true)) {
                         this.modelsPath = Environment.getExternalStorageDirectory().toString() + "/" + split[1]
+                        status.text = "Ready. $modelsPath model setted!.\n"
                     }
 
             }
         }
     }
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
-        checkAudioPermission()
-
-
+    private fun setupModelsPath(){
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && this.modelsPath.isEmpty() ) {
             val i = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
             i.addCategory(Intent.CATEGORY_DEFAULT)
             startActivityForResult(Intent.createChooser(i, "Scegli cartella con modelli"), 129)
         }
 
+    }
 
-        status.text = "Ready. \"$modelsPath\" contains model.\n"
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        checkPermission()
+
+        setupModelsPath()
     }
 
     private fun stopListening() {
@@ -146,6 +156,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun onRecordClick(v: View?) {
+
+        if (this.modelsPath.isEmpty()){
+            setupModelsPath()
+        }
+
+
         if (model == null) {
             if (!createModel()) {
                 return
