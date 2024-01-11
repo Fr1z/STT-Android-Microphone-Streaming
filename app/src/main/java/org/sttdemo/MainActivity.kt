@@ -1,36 +1,50 @@
 package org.sttdemo
 
 import ai.coqui.libstt.STTModel
-import android.speech.tts.TextToSpeech
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Color
-import android.media.AudioFormat
-import android.media.AudioManager
-import android.media.AudioRecord
-import android.media.MediaRecorder
+import android.media.*
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.speech.tts.TextToSpeech
 import android.util.Log
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import kotlinx.android.synthetic.main.activity_main.*
+import ai.kitt.snowboy.SnowboyDetect
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
 
 class MainActivity : AppCompatActivity() {
+    //sys load library
+
+    companion object {
+        init {
+            try {
+                System.loadLibrary("snowboy-detect-android")
+                Log.i("JNI", "Library loaded successfully.")
+            } catch (e: UnsatisfiedLinkError) {
+                Log.e("JNIError", "Error loading library: ${e.message}")
+            }
+        }
+    }
+
 
     private var tts: TextToSpeech? = null
 
     private var model: STTModel? = null
 
+    private var snowboy: SnowboyDetect? = null
+
+    private var activationThread: Thread? = null
     private var transcriptionThread: Thread? = null
     private var isRecording: AtomicBoolean = AtomicBoolean(false)
 
@@ -39,19 +53,77 @@ class MainActivity : AppCompatActivity() {
 
     private var modelsPath = ""
 
-    private fun checkPermission() {
-        val permissions = arrayOf(
-            Manifest.permission.READ_EXTERNAL_STORAGE,
-            Manifest.permission.RECORD_AUDIO
+    private var ACTIVE_UMDL = "activation.umdl"
+    private var ACTIVE_RES = "common.res"
+
+    private val player = MediaPlayer()
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        setupTTS()
+        checkPermission()
+        setupModelsPath()
+
+    }
+
+    private fun vadWithSnowboy() {
+        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO);
+
+        try {
+            //snowboy params
+            //snowboy?.SetSensitivity("0.6");
+            snowboy?.SetAudioGain(1F);
+            snowboy?.ApplyFrontend(true);
+
+            Log.i("Snowboy", "Snowboy setted successfully.")
+        } catch (e: UnsatisfiedLinkError) {
+            Log.e("Snowboy", "Error setting snowboy: ${e.message}")
+        }
+
+        // at 16000Hz, this corresponds to 2048/16000 = 0.128s or 128ms.
+        // Buffer size in bytes: for 0.1 second of audio
+        val audioBufferSize = (16000 * 0.1 * 2).toInt()
+
+        val audioData = ShortArray(audioBufferSize)
+
+        val recorder = AudioRecord(
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            16000,
+            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT,
+            audioBufferSize
         )
 
-        val permissionsToRequest = permissions.filter {
-            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-        }.toTypedArray()
-
-        if (permissionsToRequest.isNotEmpty()) {
-            ActivityCompat.requestPermissions(this, permissionsToRequest, 3)
+        if (recorder.state != AudioRecord.STATE_INITIALIZED) {
+            Log.e("VADThreadERROR", "Audio Record can't initialize!");
+            return;
         }
+
+        recorder.startRecording();
+
+        snowboy?.Reset()
+        //funzionicchia
+        while (isRecording.get()) {
+            recorder.read(audioData, 0, audioBufferSize)
+
+            // Snowboy hotword detection.
+            val result = snowboy!!.RunDetection(audioData, audioData.size)
+
+            if (result > 0) {
+                Log.i("Snowboy: ", "Hotword detected!");
+                player.start();
+                recorder.stop()
+                recorder.release()
+            }
+
+        }
+
+    /*
+        transcriptionThread = Thread(Runnable { transcribe() }, "Transcription Thread")
+        transcriptionThread?.start()
+    */
 
     }
 
@@ -98,6 +170,27 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun snowboySetup(): Boolean {
+
+        ACTIVE_UMDL = "$modelsPath/$ACTIVE_UMDL"
+        ACTIVE_RES = "$modelsPath/$ACTIVE_RES"
+
+        for (path in listOf(ACTIVE_UMDL, ACTIVE_RES)) {
+            if (!File(path).exists()) {
+                status.append("Snowboy creation failed: $path does not exist.\n")
+                return false
+            }
+        }
+
+        this.snowboy = SnowboyDetect(ACTIVE_RES, ACTIVE_UMDL) //detector setupped
+
+
+        player.setDataSource("$modelsPath/ding.wav")
+        player.prepare() //prepara il player a fare ding in caso di attivazione
+
+        return true
+    }
+
     private fun createModel(): Boolean {
 
         val tfliteModelPath = "$modelsPath/$TFLITE_MODEL_FILENAME"
@@ -116,11 +209,13 @@ class MainActivity : AppCompatActivity() {
         return true
     }
 
-    private fun startListening() {
-        if (isRecording.compareAndSet(false, true)) {
-            transcriptionThread = Thread(Runnable { transcribe() }, "Transcription Thread")
-            transcriptionThread?.start()
+    private fun setupModelsPath(){
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && this.modelsPath.isEmpty() ) {
+            val i = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+            i.addCategory(Intent.CATEGORY_DEFAULT)
+            startActivityForResult(Intent.createChooser(i, "Scegli cartella con modelli"), 129)
         }
+
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -128,25 +223,35 @@ class MainActivity : AppCompatActivity() {
         if (requestCode == 129 && resultCode == Activity.RESULT_OK) {
             data?.data?.let { uri ->
 
-                    val docId = uri.path.toString()
-                    Log.e("STT Debug", "Si è verificato un errore: $docId")
-                    val split = docId.split(":").toTypedArray()
-                    val type = split[0]
-                    if (type.contains("primary", true)) {
-                        this.modelsPath = Environment.getExternalStorageDirectory().toString() + "/" + split[1]
-                        status.text = "Ready. $modelsPath model setted!.\n"
-                    }
+                val docId = uri.path.toString()
+                //Log.e("STT Debug", "Si è verificato un errore: $docId")
+                val split = docId.split(":").toTypedArray()
+                val type = split[0]
+                if (type.contains("primary", true)) {
+                    this.modelsPath = Environment.getExternalStorageDirectory().toString() + "/" + split[1]
+                    status.text = "Ready. $modelsPath model setted!.\n"
+                }
 
             }
         }
     }
 
-    private fun setupModelsPath(){
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && this.modelsPath.isEmpty() ) {
-            val i = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
-            i.addCategory(Intent.CATEGORY_DEFAULT)
-            startActivityForResult(Intent.createChooser(i, "Scegli cartella con modelli"), 129)
+    private fun startListening() {
+        if (isRecording.compareAndSet(false, true)) {
+
+            activationThread = Thread(Runnable { vadWithSnowboy() }, "VAD Thread")
+            activationThread?.start()
+            /*
+            transcriptionThread = Thread(Runnable { transcribe() }, "Transcription Thread")
+            transcriptionThread?.start()
+            */
         }
+    }
+
+    private fun stopListening() {
+
+        isRecording.set(false)
+        speakTTS(transcription.text as String)
 
     }
 
@@ -171,11 +276,11 @@ class MainActivity : AppCompatActivity() {
 
 
     }
+
     private fun speakTTS(testo :String){
         val streamToUse = AudioManager.STREAM_MUSIC
 
         val speechPitch = 1.0f
-
         val utteranceId = "utterance_id"
         val params = Bundle()
         params.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, streamToUse)
@@ -185,20 +290,20 @@ class MainActivity : AppCompatActivity() {
         }
 
     }
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
 
-        setupTTS()
-        checkPermission()
+    private fun checkPermission() {
+        val permissions = arrayOf(
+            Manifest.permission.READ_EXTERNAL_STORAGE,
+            Manifest.permission.RECORD_AUDIO
+        )
 
-        setupModelsPath()
-    }
+        val permissionsToRequest = permissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }.toTypedArray()
 
-    private fun stopListening() {
-
-        isRecording.set(false)
-        speakTTS(transcription.text as String)
+        if (permissionsToRequest.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, permissionsToRequest, 3)
+        }
 
     }
 
@@ -208,6 +313,12 @@ class MainActivity : AppCompatActivity() {
             setupModelsPath()
         }
 
+        if (snowboy == null) {
+            if (!snowboySetup()) {
+                return
+            }
+            status.append("Created snowboy detector.\n")
+        }
 
         if (model == null) {
             if (!createModel()) {
