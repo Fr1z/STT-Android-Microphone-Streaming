@@ -1,6 +1,7 @@
 package org.sttdemo
 
 import ai.coqui.libstt.STTModel
+import ai.coqui.libstt.STTStreamingState
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
@@ -53,9 +54,11 @@ class MainActivity : AppCompatActivity() {
 
     private var modelsPath = ""
 
-    private var ACTIVE_UMDL = "activation.umdl"
+    private var ACTIVE_UMDL = "hotword.umdl"
     private var ACTIVE_RES = "common.res"
 
+    private val SAMPLE_RATE = 16000;
+    private val LISTEN_AFTER_SILENCE_TIME = 1080;
     private val player = MediaPlayer()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -68,29 +71,36 @@ class MainActivity : AppCompatActivity() {
 
     }
 
-    private fun vadWithSnowboy() {
+    private fun perceive() {
         android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO);
-
-        try {
-            //snowboy params
-            //snowboy?.SetSensitivity("0.6");
-            snowboy?.SetAudioGain(1F);
-            snowboy?.ApplyFrontend(true);
-
-            Log.i("Snowboy", "Snowboy setted successfully.")
-        } catch (e: UnsatisfiedLinkError) {
-            Log.e("Snowboy", "Error setting snowboy: ${e.message}")
-        }
 
         // at 16000Hz, this corresponds to 2048/16000 = 0.128s or 128ms.
         // Buffer size in bytes: for 0.1 second of audio
-        val audioBufferSize = (16000 * 0.1 * 2).toInt()
+        //val audioBufferSize = (SAMPLE_RATE * 0.1).toInt()
 
+        val audioBufferSize = 2048
         val audioData = ShortArray(audioBufferSize)
+        var transcribing = true
+        var streamContext: STTStreamingState? = null
+        var lastSpeakTime: Long = System.currentTimeMillis()
+
+        try {
+            streamContext = model?.createStream()
+            Log.i("STT", "Stream is Ready!")
+        } catch (e: Error) {
+            streamContext = null
+            Log.e("STT", "Error setting STT: ${e.message}")
+        }
+
+        runOnUiThread {
+            btnStartInference.text = "FERMA REGISTRAZIONE"
+            btnStartInference.backgroundTintList =
+                ColorStateList.valueOf(Color.parseColor("#F44336")) //bottone rosso
+        }
 
         val recorder = AudioRecord(
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
-            16000,
+            SAMPLE_RATE,
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
             audioBufferSize
@@ -104,26 +114,98 @@ class MainActivity : AppCompatActivity() {
         recorder.startRecording();
 
         snowboy?.Reset()
-        //funzionicchia
+
         while (isRecording.get()) {
+
             recorder.read(audioData, 0, audioBufferSize)
 
-            // Snowboy hotword detection.
+            // Snowboy model hotword detection.
             val result = snowboy!!.RunDetection(audioData, audioData.size)
 
             if (result > 0) {
-                Log.i("Snowboy: ", "Hotword detected!");
-                player.start();
-                recorder.stop()
-                recorder.release()
+                Log.i("Snowboy: ", "Hotword detected!")
+
+                runOnUiThread {
+                    transcription.text = ""
+                    btnStartInference.text = "FERMA REGISTRAZIONE"
+                    btnStartInference.backgroundTintList =
+                        ColorStateList.valueOf(Color.parseColor("#F44336")) //bottone rosso
+                }
+
+                lastSpeakTime = System.currentTimeMillis()
+
+                transcribing = true
+                player.start()
+
+            } else if (result == -2) {
+                //VAD not speaking
+                val silenceTime = System.currentTimeMillis() - lastSpeakTime
+
+                if (transcribing) {
+                    Log.i("VAD", "silencetime: $silenceTime")
+                }
+
+                if (transcribing && silenceTime >= LISTEN_AFTER_SILENCE_TIME) {
+
+                    transcribing = false;
+
+                    val decoded = model?.finishStream(streamContext)
+
+                    runOnUiThread {
+                        transcription.text = decoded
+                        btnStartInference.text = "REGISTRA"
+                        transcription.text = decoded
+                        btnStartInference.backgroundTintList =
+                            ColorStateList.valueOf(Color.parseColor("#8BC34A")) //bottone verde
+                    }
+
+
+                    Log.i("STT", "STT Stopped")
+
+                    try {
+                        streamContext = model?.createStream()
+                        Log.i("STT", "Stream is Ready!")
+                    } catch (e: Error) {
+                        streamContext = null
+                        Log.e("STT", "Error setting STT: ${e.message}")
+                    }
+
+                }
+
+                //Log.w("Snowboy", "High CPU Usage -2");
+
+            } else if (result == -1) {
+                Log.e("Snowboy", "Unknown Detection Error");
+            } else if (result == 0) {
+                //VAD speaking
+                //Update last speak time
+                lastSpeakTime = System.currentTimeMillis()
+
+                // post a higher CPU usage:
+                //Log.w("Snowboy", "High CPU Usage");
+            }
+
+            if (transcribing && streamContext != null) {
+                Log.i("STT", "Transcribing..")
+                model?.let { model ->
+                    model.feedAudioContent(streamContext, audioData, audioData.size)
+                    val decoded = model.intermediateDecode(streamContext)
+                    runOnUiThread { transcription.text = decoded }
+                }
+
             }
 
         }
 
-    /*
-        transcriptionThread = Thread(Runnable { transcribe() }, "Transcription Thread")
-        transcriptionThread?.start()
-    */
+
+
+        recorder.stop()
+        recorder.release()
+
+        /*
+            transcriptionThread = Thread(Runnable { transcribe() }, "Transcription Thread")
+            transcriptionThread?.start()
+        */
 
     }
 
@@ -135,7 +217,8 @@ class MainActivity : AppCompatActivity() {
 
         runOnUiThread {
             btnStartInference.text = "FERMA REGISTRAZIONE"
-            btnStartInference.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#F44336")) //bottone rosso
+            btnStartInference.backgroundTintList =
+                ColorStateList.valueOf(Color.parseColor("#F44336")) //bottone rosso
         }
 
         model?.let { model ->
@@ -162,7 +245,8 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 btnStartInference.text = "REGISTRA"
                 transcription.text = decoded
-                btnStartInference.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#8BC34A")) //bottone verde
+                btnStartInference.backgroundTintList =
+                    ColorStateList.valueOf(Color.parseColor("#8BC34A")) //bottone verde
             }
 
             recorder.stop()
@@ -184,9 +268,19 @@ class MainActivity : AppCompatActivity() {
 
         this.snowboy = SnowboyDetect(ACTIVE_RES, ACTIVE_UMDL) //detector setupped
 
-
         player.setDataSource("$modelsPath/ding.wav")
         player.prepare() //prepara il player a fare ding in caso di attivazione
+
+        try {
+            //snowboy params
+            //snowboy?.SetSensitivity("0.6");
+            snowboy?.SetAudioGain(1F);
+            snowboy?.ApplyFrontend(true);
+
+            Log.i("Snowboy", "Snowboy setted successfully.")
+        } catch (e: Error) {
+            Log.e("Snowboy", "Error setting snowboy: ${e.message}")
+        }
 
         return true
     }
@@ -209,8 +303,8 @@ class MainActivity : AppCompatActivity() {
         return true
     }
 
-    private fun setupModelsPath(){
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && this.modelsPath.isEmpty() ) {
+    private fun setupModelsPath() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && this.modelsPath.isEmpty()) {
             val i = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
             i.addCategory(Intent.CATEGORY_DEFAULT)
             startActivityForResult(Intent.createChooser(i, "Scegli cartella con modelli"), 129)
@@ -228,7 +322,8 @@ class MainActivity : AppCompatActivity() {
                 val split = docId.split(":").toTypedArray()
                 val type = split[0]
                 if (type.contains("primary", true)) {
-                    this.modelsPath = Environment.getExternalStorageDirectory().toString() + "/" + split[1]
+                    this.modelsPath =
+                        Environment.getExternalStorageDirectory().toString() + "/" + split[1]
                     status.text = "Ready. $modelsPath model setted!.\n"
                 }
 
@@ -239,7 +334,7 @@ class MainActivity : AppCompatActivity() {
     private fun startListening() {
         if (isRecording.compareAndSet(false, true)) {
 
-            activationThread = Thread(Runnable { vadWithSnowboy() }, "VAD Thread")
+            activationThread = Thread(Runnable { perceive() }, "Perceiving Thread")
             activationThread?.start()
             /*
             transcriptionThread = Thread(Runnable { transcribe() }, "Transcription Thread")
@@ -271,13 +366,13 @@ class MainActivity : AppCompatActivity() {
                     startActivity(installIntent)
 
                 }
-            }, "com.google.android.tts")
-
+            }, "com.google.android.tts"
+        )
 
 
     }
 
-    private fun speakTTS(testo :String){
+    private fun speakTTS(testo: String) {
         val streamToUse = AudioManager.STREAM_MUSIC
 
         val speechPitch = 1.0f
@@ -285,7 +380,7 @@ class MainActivity : AppCompatActivity() {
         val params = Bundle()
         params.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, streamToUse)
         params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId)
-        if (this.tts != null){
+        if (this.tts != null) {
             this.tts!!.speak(testo, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
         }
 
@@ -309,7 +404,7 @@ class MainActivity : AppCompatActivity() {
 
     fun onRecordClick(v: View?) {
 
-        if (this.modelsPath.isEmpty()){
+        if (this.modelsPath.isEmpty()) {
             setupModelsPath()
         }
 
