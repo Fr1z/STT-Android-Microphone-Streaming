@@ -25,8 +25,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 
 class MainActivity : AppCompatActivity() {
-    //sys load library
 
+    //sys load library
     companion object {
         init {
             try {
@@ -45,9 +45,11 @@ class MainActivity : AppCompatActivity() {
 
     private var snowboy: SnowboyDetect? = null
 
-    private var activationThread: Thread? = null
-    private var transcriptionThread: Thread? = null
+    private var streamContext: STTStreamingState? = null
+
+    private var listeningThread: Thread? = null
     private var isRecording: AtomicBoolean = AtomicBoolean(false)
+    private var isTranscribing: AtomicBoolean = AtomicBoolean(false)
 
     private val TFLITE_MODEL_FILENAME = "model.tflite"
     private val SCORER_FILENAME = "kenlm.scorer"
@@ -59,6 +61,8 @@ class MainActivity : AppCompatActivity() {
 
     private val SAMPLE_RATE = 16000;
     private val LISTEN_AFTER_SILENCE_TIME = 1080;
+    private var lastSpeakTime: Long = System.currentTimeMillis()
+
     private val player = MediaPlayer()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -74,15 +78,16 @@ class MainActivity : AppCompatActivity() {
     private fun perceive() {
         android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO);
 
+        isTranscribing.set(false)
+
         // at 16000Hz, this corresponds to 2048/16000 = 0.128s or 128ms.
         // Buffer size in bytes: for 0.1 second of audio
         //val audioBufferSize = (SAMPLE_RATE * 0.1).toInt()
 
         val audioBufferSize = 2048
         val audioData = ShortArray(audioBufferSize)
-        var transcribing = true
-        var streamContext: STTStreamingState? = null
-        var lastSpeakTime: Long = System.currentTimeMillis()
+
+
 
         try {
             streamContext = model?.createStream()
@@ -92,11 +97,6 @@ class MainActivity : AppCompatActivity() {
             Log.e("STT", "Error setting STT: ${e.message}")
         }
 
-        runOnUiThread {
-            btnStartInference.text = "FERMA REGISTRAZIONE"
-            btnStartInference.backgroundTintList =
-                ColorStateList.valueOf(Color.parseColor("#F44336")) //bottone rosso
-        }
 
         val recorder = AudioRecord(
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
@@ -123,52 +123,22 @@ class MainActivity : AppCompatActivity() {
             val result = snowboy!!.RunDetection(audioData, audioData.size)
 
             if (result > 0) {
+
                 Log.i("Snowboy: ", "Hotword detected!")
 
-                runOnUiThread {
-                    transcription.text = ""
-                    btnStartInference.text = "FERMA REGISTRAZIONE"
-                    btnStartInference.backgroundTintList =
-                        ColorStateList.valueOf(Color.parseColor("#F44336")) //bottone rosso
-                }
-
-                lastSpeakTime = System.currentTimeMillis()
-
-                transcribing = true
-                player.start()
+                startTranscribe()
 
             } else if (result == -2) {
                 //VAD not speaking
                 val silenceTime = System.currentTimeMillis() - lastSpeakTime
 
-                if (transcribing) {
+                if (isTranscribing.get()) {
                     Log.i("VAD", "silencetime: $silenceTime")
                 }
 
-                if (transcribing && silenceTime >= LISTEN_AFTER_SILENCE_TIME) {
+                if (isTranscribing.get() && silenceTime >= LISTEN_AFTER_SILENCE_TIME) {
 
-                    transcribing = false;
-
-                    val decoded = model?.finishStream(streamContext)
-
-                    runOnUiThread {
-                        transcription.text = decoded
-                        btnStartInference.text = "REGISTRA"
-                        transcription.text = decoded
-                        btnStartInference.backgroundTintList =
-                            ColorStateList.valueOf(Color.parseColor("#8BC34A")) //bottone verde
-                    }
-
-
-                    Log.i("STT", "STT Stopped")
-
-                    try {
-                        streamContext = model?.createStream()
-                        Log.i("STT", "Stream is Ready!")
-                    } catch (e: Error) {
-                        streamContext = null
-                        Log.e("STT", "Error setting STT: ${e.message}")
-                    }
+                    stopTranscribe()
 
                 }
 
@@ -185,8 +155,8 @@ class MainActivity : AppCompatActivity() {
                 //Log.w("Snowboy", "High CPU Usage");
             }
 
-            if (transcribing && streamContext != null) {
-                Log.i("STT", "Transcribing..")
+            if (isTranscribing.get() && streamContext != null) {
+                //Log.i("STT", "Transcribing..")
                 model?.let { model ->
                     model.feedAudioContent(streamContext, audioData, audioData.size)
                     val decoded = model.intermediateDecode(streamContext)
@@ -197,61 +167,9 @@ class MainActivity : AppCompatActivity() {
 
         }
 
-
-
         recorder.stop()
         recorder.release()
 
-        /*
-            transcriptionThread = Thread(Runnable { transcribe() }, "Transcription Thread")
-            transcriptionThread?.start()
-        */
-
-    }
-
-    private fun transcribe() {
-        // We read from the recorder in chunks of 2048 shorts. With a model that expects its input
-        // at 16000Hz, this corresponds to 2048/16000 = 0.128s or 128ms.
-        val audioBufferSize = 2048
-        val audioData = ShortArray(audioBufferSize)
-
-        runOnUiThread {
-            btnStartInference.text = "FERMA REGISTRAZIONE"
-            btnStartInference.backgroundTintList =
-                ColorStateList.valueOf(Color.parseColor("#F44336")) //bottone rosso
-        }
-
-        model?.let { model ->
-            val streamContext = model.createStream()
-
-            val recorder = AudioRecord(
-                MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                model.sampleRate(),
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-                audioBufferSize
-            )
-            recorder.startRecording()
-
-            while (isRecording.get()) {
-                recorder.read(audioData, 0, audioBufferSize)
-                model.feedAudioContent(streamContext, audioData, audioData.size)
-                val decoded = model.intermediateDecode(streamContext)
-                runOnUiThread { transcription.text = decoded }
-            }
-
-            val decoded = model.finishStream(streamContext)
-
-            runOnUiThread {
-                btnStartInference.text = "REGISTRA"
-                transcription.text = decoded
-                btnStartInference.backgroundTintList =
-                    ColorStateList.valueOf(Color.parseColor("#8BC34A")) //bottone verde
-            }
-
-            recorder.stop()
-            recorder.release()
-        }
     }
 
     private fun snowboySetup(): Boolean {
@@ -325,28 +243,82 @@ class MainActivity : AppCompatActivity() {
                     this.modelsPath =
                         Environment.getExternalStorageDirectory().toString() + "/" + split[1]
                     status.text = "Ready. $modelsPath model setted!.\n"
+                    completeSetupAndStartListening()
                 }
 
             }
         }
     }
 
+    private fun completeSetupAndStartListening() {
+
+        if (this.modelsPath.isEmpty()) {
+            setupModelsPath()
+        }
+
+        if (snowboy == null) {
+            if (!snowboySetup()) {
+                return
+            }
+            status.append("Created snowboy detector.\n")
+        }
+
+        if (model == null) {
+            if (!createModel()) {
+                return
+            }
+            status.append("Created model.\n")
+        }
+
+        startListening()
+
+    }
+
     private fun startListening() {
         if (isRecording.compareAndSet(false, true)) {
 
-            activationThread = Thread(Runnable { perceive() }, "Perceiving Thread")
-            activationThread?.start()
-            /*
-            transcriptionThread = Thread(Runnable { transcribe() }, "Transcription Thread")
-            transcriptionThread?.start()
-            */
+            listeningThread = Thread(Runnable { perceive() }, "Perceiving Thread")
+            listeningThread?.start()
+
         }
     }
 
-    private fun stopListening() {
+    private fun startTranscribe() {
+        if (isRecording.get()){
+            transcription.text = ""
+            btnStartInference.text = "FERMA REGISTRAZIONE"
+            btnStartInference.backgroundTintList =
+                ColorStateList.valueOf(Color.parseColor("#F44336")) //bottone rosso
+            lastSpeakTime = System.currentTimeMillis()
 
-        isRecording.set(false)
-        speakTTS(transcription.text as String)
+            isTranscribing.compareAndSet(false, true)
+
+            player.start()
+        }
+
+    }
+
+    private fun stopTranscribe() {
+        if (isRecording.get()){
+            isTranscribing.compareAndSet(true, false)
+
+            val decoded = model?.finishStream(streamContext)
+
+            transcription.text = decoded
+            btnStartInference.text = "REGISTRA"
+            transcription.text = decoded
+            btnStartInference.backgroundTintList =
+                ColorStateList.valueOf(Color.parseColor("#8BC34A")) //bottone verde
+
+            try {
+                streamContext = model?.createStream()
+                Log.i("STT", "Stream is Ready!")
+            } catch (e: Error) {
+                streamContext = null
+                Log.e("STT", "Error setting STT: ${e.message}")
+            }
+
+        }
 
     }
 
@@ -386,10 +358,23 @@ class MainActivity : AppCompatActivity() {
 
     }
 
+    fun onRecordClick(v: View?) {
+
+        if (isTranscribing.get()) {
+            stopTranscribe()
+
+            speakTTS(transcription.text as String)
+
+        } else {
+            startTranscribe()
+        }
+    }
+
     private fun checkPermission() {
         val permissions = arrayOf(
             Manifest.permission.READ_EXTERNAL_STORAGE,
-            Manifest.permission.RECORD_AUDIO
+            Manifest.permission.RECORD_AUDIO,
+            Manifest.permission.INTERNET
         )
 
         val permissionsToRequest = permissions.filter {
@@ -402,37 +387,16 @@ class MainActivity : AppCompatActivity() {
 
     }
 
-    fun onRecordClick(v: View?) {
-
-        if (this.modelsPath.isEmpty()) {
-            setupModelsPath()
-        }
-
-        if (snowboy == null) {
-            if (!snowboySetup()) {
-                return
-            }
-            status.append("Created snowboy detector.\n")
-        }
-
-        if (model == null) {
-            if (!createModel()) {
-                return
-            }
-            status.append("Created model.\n")
-        }
-
-        if (isRecording.get()) {
-            stopListening()
-        } else {
-            startListening()
-        }
-    }
-
     override fun onDestroy() {
-        super.onDestroy()
+
+        isTranscribing.set(false)
+        isRecording.set(false)
+
         if (model != null) {
             model?.freeModel()
         }
+
+        super.onDestroy()
+
     }
 }
