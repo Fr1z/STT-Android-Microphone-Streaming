@@ -20,8 +20,11 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import kotlinx.android.synthetic.main.activity_main.*
 import ai.kitt.snowboy.SnowboyDetect
+import androidx.lifecycle.Observer
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
+import org.json.JSONObject
+import org.sttdemo.Networking
 
 
 class MainActivity : AppCompatActivity() {
@@ -38,32 +41,30 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-
-    private var tts: TextToSpeech? = null
-
-    private var model: STTModel? = null
-
-    private var snowboy: SnowboyDetect? = null
-
-    private var streamContext: STTStreamingState? = null
-
     private var listeningThread: Thread? = null
     private var isRecording: AtomicBoolean = AtomicBoolean(false)
     private var isTranscribing: AtomicBoolean = AtomicBoolean(false)
 
+    private var model: STTModel? = null
+    private var streamContext: STTStreamingState? = null
+    private var snowboy: SnowboyDetect? = null
+
+
+    private var networkManager: Networking? = null
+
     private val TFLITE_MODEL_FILENAME = "model.tflite"
     private val SCORER_FILENAME = "kenlm.scorer"
-
     private var modelsPath = ""
 
     private var ACTIVE_UMDL = "hotword.umdl"
     private var ACTIVE_RES = "common.res"
 
     private val SAMPLE_RATE = 16000;
-    private val LISTEN_AFTER_SILENCE_TIME = 1080;
+    private val LISTEN_AFTER_SILENCE_TIME: Long = 1789;
     private var lastSpeakTime: Long = System.currentTimeMillis()
 
     private val player = MediaPlayer()
+    private var tts: TextToSpeech? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,6 +73,7 @@ class MainActivity : AppCompatActivity() {
         setupTTS()
         checkPermission()
         setupModelsPath()
+        setupNetworkManager()
 
     }
 
@@ -86,8 +88,6 @@ class MainActivity : AppCompatActivity() {
 
         val audioBufferSize = 2048
         val audioData = ShortArray(audioBufferSize)
-
-
 
         try {
             streamContext = model?.createStream()
@@ -130,7 +130,7 @@ class MainActivity : AppCompatActivity() {
 
             } else if (result == -2) {
                 //VAD not speaking
-                val silenceTime = System.currentTimeMillis() - lastSpeakTime
+                val silenceTime: Long = System.currentTimeMillis() - lastSpeakTime
 
                 if (isTranscribing.get()) {
                     Log.i("VAD", "silencetime: $silenceTime")
@@ -139,6 +139,10 @@ class MainActivity : AppCompatActivity() {
                 if (isTranscribing.get() && silenceTime >= LISTEN_AFTER_SILENCE_TIME) {
 
                     stopTranscribe()
+
+                    speakTTS(transcription.text as String)
+
+                    //HERE
 
                 }
 
@@ -216,7 +220,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         model = STTModel(tfliteModelPath)
-        model?.enableExternalScorer(scorerPath)
+        model ?. enableExternalScorer(scorerPath)
 
         return true
     }
@@ -230,6 +234,23 @@ class MainActivity : AppCompatActivity() {
 
     }
 
+    private fun setupNetworkManager(){
+        // Configurazione della classe DataReceiver con indirizzo del server e porta
+        networkManager = Networking("127.0.0.1", 1337)
+
+        // Inizio dello streaming
+        val jsonDataToSend = "{{\"content\": \"Ciao! mi dici in una frase corta e sintetica quanto fa 27+93\"}" // Dati da inviare al server (JSON)
+
+        networkManager!!.startStreaming(jsonDataToSend)
+        Log.i("Networking", "Richiesta inviata")
+
+        // Osservazione dei cambiamenti nella variabile LiveData
+        networkManager!!.data.observe(this, Observer { receivedData ->
+            // Aggiornamento dell'interfaccia utente o gestione dei dati ricevuti
+            transcription.text = receivedData
+            Log.i("Networking", "Response: $receivedData")
+        })
+    }
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == 129 && resultCode == Activity.RESULT_OK) {
