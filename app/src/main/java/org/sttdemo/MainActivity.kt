@@ -21,10 +21,12 @@ import androidx.core.content.ContextCompat
 import kotlinx.android.synthetic.main.activity_main.*
 import ai.kitt.snowboy.SnowboyDetect
 import androidx.lifecycle.Observer
+import org.json.JSONException
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import org.json.JSONObject
 import org.sttdemo.Networking
+
 
 
 class MainActivity : AppCompatActivity() {
@@ -124,10 +126,12 @@ class MainActivity : AppCompatActivity() {
 
             if (result > 0) {
 
-                Log.i("Snowboy: ", "Hotword detected!")
 
-                startTranscribe()
+                if (! isTranscribing.get()) { //evita più attivazioni
+                    Log.i("Snowboy: ", "Hotword detected!")
 
+                    startTranscribe()
+                }
             } else if (result == -2) {
                 //VAD not speaking
                 val silenceTime: Long = System.currentTimeMillis() - lastSpeakTime
@@ -162,9 +166,12 @@ class MainActivity : AppCompatActivity() {
             if (isTranscribing.get() && streamContext != null) {
                 //Log.i("STT", "Transcribing..")
                 model?.let { model ->
-                    model.feedAudioContent(streamContext, audioData, audioData.size)
-                    val decoded = model.intermediateDecode(streamContext)
-                    runOnUiThread { transcription.text = decoded }
+                    //try to fix SIGABRT
+                    if (isTranscribing.get() && streamContext != null){
+                        model.feedAudioContent(streamContext, audioData, audioData.size)
+                        val decoded = model.intermediateDecode(streamContext)
+                        runOnUiThread { transcription.text = decoded }
+                    }
                 }
 
             }
@@ -239,16 +246,22 @@ class MainActivity : AppCompatActivity() {
         networkManager = Networking("127.0.0.1", 1337)
 
         // Inizio dello streaming
-        val jsonDataToSend = "{{\"content\": \"Ciao! mi dici in una frase corta e sintetica quanto fa 27+93\"}" // Dati da inviare al server (JSON)
+        val jsonDataToSend = "{\"content\": \"Ciao! ti chiedo di essere il più sintentico possibile con le prossime risposte, perfavore tienilo a mente.\"}" // Dati da inviare al server (JSON)
 
         networkManager!!.startStreaming(jsonDataToSend)
-        Log.i("Networking", "Richiesta inviata")
+        status.append("GPT contattato.\n")
 
         // Osservazione dei cambiamenti nella variabile LiveData
         networkManager!!.data.observe(this, Observer { receivedData ->
             // Aggiornamento dell'interfaccia utente o gestione dei dati ricevuti
-            transcription.text = receivedData
-            Log.i("Networking", "Response: $receivedData")
+            try {
+                response.text = response.text.toString() + receivedData
+                Log.i("Networking", "Response: $receivedData")
+                //speakTTS(response.text as String)
+            } catch (e: Exception) {
+                Log.e("Networking ERROR", "Response: $receivedData")
+            }
+
         })
     }
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -320,14 +333,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun stopTranscribe() {
-        if (isRecording.get()){
+        if (isRecording.get()) {
             isTranscribing.compareAndSet(true, false)
 
-            val decoded = model?.finishStream(streamContext)
+            //try to fix SIGABRT
+            if (streamContext != null){
 
-            transcription.text = decoded
+                val decoded = model?.intermediateDecode(streamContext)
+                model?.finishStream(streamContext)
+
+                transcription.text = decoded
+            }
+
             btnStartInference.text = "REGISTRA"
-            transcription.text = decoded
             btnStartInference.backgroundTintList =
                 ColorStateList.valueOf(Color.parseColor("#8BC34A")) //bottone verde
 
@@ -384,7 +402,13 @@ class MainActivity : AppCompatActivity() {
         if (isTranscribing.get()) {
             stopTranscribe()
 
-            speakTTS(transcription.text as String)
+            // Inizio dello streaming
+            val trascrizione : String = transcription.text.toString()
+            val jsonDataToSend = "{\"content\": \"$trascrizione\"}" //Invio quello che ho detto al server
+
+            response.text = ""
+            networkManager!!.startStreaming(jsonDataToSend)
+            //speakTTS(transcription.text as String)
 
         } else {
             startTranscribe()

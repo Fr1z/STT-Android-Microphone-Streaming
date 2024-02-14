@@ -4,6 +4,8 @@ import android.os.Looper
 import android.util.Log
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
+import org.json.JSONException
+import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.DataOutputStream
 import java.io.InputStreamReader
@@ -75,7 +77,15 @@ class Networking(private val serverAddress: String, private val port: Int) {
 
                     // Aggiornamento della variabile LiveData sul thread principale
                     Handler(Looper.getMainLooper()).post {
-                        _data.value = receivedData
+                        try {
+                            // get JSONObject from JSON response
+                            val respObj = JSONObject(receivedData)
+                            // get message string
+                            val messageResponse: String = respObj.getString("message")
+                            _data.value = messageResponse
+                        } catch (e : Exception){
+                            Log.e("NETWORK", "noJson: $receivedData")
+                        }
                     }
                 }
 
