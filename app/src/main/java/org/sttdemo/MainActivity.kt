@@ -43,6 +43,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private var responseTextPart: String = ""
     private var listeningThread: Thread? = null
     private var isRecording: AtomicBoolean = AtomicBoolean(false)
     private var isTranscribing: AtomicBoolean = AtomicBoolean(false)
@@ -144,7 +145,12 @@ class MainActivity : AppCompatActivity() {
 
                     stopTranscribe()
 
-                    speakTTS(transcription.text as String)
+                    // Invio richiesta a GPT
+                    val trascrizione : String = transcription.text.toString()
+                    val jsonDataToSend = "{\"content\": \"$trascrizione\"}" //Invio quello che ho detto al server
+
+                    runOnUiThread { response.text = ""}
+                    networkManager!!.startStreaming(jsonDataToSend)
 
                     //HERE
 
@@ -256,8 +262,8 @@ class MainActivity : AppCompatActivity() {
             // Aggiornamento dell'interfaccia utente o gestione dei dati ricevuti
             try {
                 response.text = response.text.toString() + receivedData
-                Log.i("Networking", "Response: $receivedData")
-                //speakTTS(response.text as String)
+                Log.i("Networking", "Response: \"$receivedData\"")
+                speakTTS(receivedData as String)
             } catch (e: Exception) {
                 Log.e("Networking ERROR", "Response: $receivedData")
             }
@@ -386,14 +392,34 @@ class MainActivity : AppCompatActivity() {
     private fun speakTTS(testo: String) {
         val streamToUse = AudioManager.STREAM_MUSIC
 
-        val speechPitch = 1.0f
-        val utteranceId = "utterance_id"
-        val params = Bundle()
-        params.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, streamToUse)
-        params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId)
-        if (this.tts != null) {
-            this.tts!!.speak(testo, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+        //TODO dividere le stringhe e leggere fino allo spazio
+        if (testo.endsWith(' ')
+            || testo.endsWith('.')
+            || testo.endsWith('!')
+            || testo.endsWith('?')
+            || testo.endsWith(')')
+            || testo.endsWith(']')
+            || testo.endsWith(':')
+            || testo.endsWith(',')
+            || testo.endsWith(';')
+        ){
+            var speakText = this.responseTextPart + testo
+            Log.i("TTS", "dico: \"$speakText\"")
+            val speechPitch = 1.0f
+            val utteranceId = "utterance_id"
+            val params = Bundle()
+            params.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, streamToUse)
+            params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId)
+            if (this.tts != null) {
+                this.tts!!.speak(speakText, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+                //reset spekpart
+                this.responseTextPart = ""
+            }
+        }else{
+            this.responseTextPart = this.responseTextPart + testo
+            Log.i("TTS", "textadd: \"$responseTextPart\"")
         }
+
 
     }
 
@@ -402,13 +428,14 @@ class MainActivity : AppCompatActivity() {
         if (isTranscribing.get()) {
             stopTranscribe()
 
-            // Inizio dello streaming
+            // Invio richiesta a GPT
             val trascrizione : String = transcription.text.toString()
             val jsonDataToSend = "{\"content\": \"$trascrizione\"}" //Invio quello che ho detto al server
 
             response.text = ""
             networkManager!!.startStreaming(jsonDataToSend)
             //speakTTS(transcription.text as String)
+
 
         } else {
             startTranscribe()
