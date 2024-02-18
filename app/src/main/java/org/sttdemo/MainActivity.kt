@@ -390,9 +390,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun speakTTS(testo: String) {
-        val streamToUse = AudioManager.STREAM_MUSIC
 
-        //TODO dividere le stringhe e leggere fino allo spazio
+        val streamToUse = AudioManager.STREAM_MUSIC
+        var speakText = ""
+
         if (testo.endsWith(' ')
             || testo.endsWith('.')
             || testo.endsWith('!')
@@ -403,7 +404,25 @@ class MainActivity : AppCompatActivity() {
             || testo.endsWith(',')
             || testo.endsWith(';')
         ){
-            var speakText = this.responseTextPart + testo
+            speakText = this.responseTextPart + testo
+
+            //reset spekpart
+            this.responseTextPart = ""
+        }else{
+
+            //aggiungo alla text part
+            this.responseTextPart = this.responseTextPart + testo
+
+            //posso dire qualcosa
+            val lastSpaceIndex = this.responseTextPart.lastIndexOf(" ")
+            val (remaning, canSpeak) = this.responseTextPart.takeLast(this.responseTextPart.length - lastSpaceIndex) to this.responseTextPart.take(lastSpaceIndex)
+            Log.i("TTS", "textadd: \"$remaning\"")
+            this.responseTextPart = remaning
+            speakText = canSpeak
+
+        }
+
+        if (speakText.length > 0){
             Log.i("TTS", "dico: \"$speakText\"")
             val speechPitch = 1.0f
             val utteranceId = "utterance_id"
@@ -412,12 +431,7 @@ class MainActivity : AppCompatActivity() {
             params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId)
             if (this.tts != null) {
                 this.tts!!.speak(speakText, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
-                //reset spekpart
-                this.responseTextPart = ""
             }
-        }else{
-            this.responseTextPart = this.responseTextPart + testo
-            Log.i("TTS", "textadd: \"$responseTextPart\"")
         }
 
 

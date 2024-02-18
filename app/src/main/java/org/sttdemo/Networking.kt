@@ -50,7 +50,7 @@ class Networking(private val serverAddress: String, private val port: Int) {
                 HttpsURLConnection.setDefaultSSLSocketFactory(sslContext.socketFactory)
                 HttpsURLConnection.setDefaultHostnameVerifier { _, _ -> true }
 
-                val url = URL("https://$serverAddress:$port")
+                val url = URL("https://$serverAddress:$port/api/chat")
                 val connection = url.openConnection() as HttpURLConnection
 
                 connection.requestMethod = "POST"
