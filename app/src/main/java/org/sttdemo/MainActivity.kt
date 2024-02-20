@@ -20,6 +20,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import kotlinx.android.synthetic.main.activity_main.*
 import ai.kitt.snowboy.SnowboyDetect
+import android.webkit.ValueCallback
 import androidx.lifecycle.Observer
 import org.json.JSONException
 import java.io.File
@@ -149,7 +150,7 @@ class MainActivity : AppCompatActivity() {
                     val trascrizione : String = transcription.text.toString()
                     val jsonDataToSend = "{\"content\": \"$trascrizione\"}" //Invio quello che ho detto al server
 
-                    runOnUiThread { response.text = ""}
+                    runOnUiThread { setResponseText("")}
                     networkManager!!.startStreaming(jsonDataToSend)
 
                     //HERE
@@ -261,7 +262,7 @@ class MainActivity : AppCompatActivity() {
         networkManager!!.data.observe(this, Observer { receivedData ->
             // Aggiornamento dell'interfaccia utente o gestione dei dati ricevuti
             try {
-                response.text = response.text.toString() + receivedData
+                setResponseText( getResponseText() + receivedData )
                 Log.i("Networking", "Response: \"$receivedData\"")
                 speakTTS(receivedData as String)
             } catch (e: Exception) {
@@ -446,7 +447,8 @@ class MainActivity : AppCompatActivity() {
             val trascrizione : String = transcription.text.toString()
             val jsonDataToSend = "{\"content\": \"$trascrizione\"}" //Invio quello che ho detto al server
 
-            response.text = ""
+
+            setResponseText("")
             networkManager!!.startStreaming(jsonDataToSend)
             //speakTTS(transcription.text as String)
 
@@ -471,6 +473,19 @@ class MainActivity : AppCompatActivity() {
             ActivityCompat.requestPermissions(this, permissionsToRequest, 3)
         }
 
+    }
+
+    private fun getResponseText():String{
+        var responseText : String = ""
+        // Ottieni l'HTML utilizzando evaluateJavascript()
+        response.evaluateJavascript("document.documentElement.outerHTML", ValueCallback { html ->
+            responseText=html
+        })
+        return responseText
+    }
+
+    private fun setResponseText(htmlString : String){
+        return response.loadDataWithBaseURL(null, htmlString, "text/html", "UTF-8", null)
     }
 
     override fun onDestroy() {
