@@ -266,7 +266,8 @@ class MainActivity : AppCompatActivity() {
                 Log.i("Networking", "Response: \"$receivedData\"")
                 speakTTS(receivedData as String)
             } catch (e: Exception) {
-                Log.e("Networking ERROR", "Response: $receivedData")
+                Log.e("TTS ERROR", "Response Text: $receivedData")
+                Log.e("TTS ERROR", e.message)
             }
 
         })
@@ -415,9 +416,16 @@ class MainActivity : AppCompatActivity() {
             this.responseTextPart = this.responseTextPart + testo
 
             //posso dire qualcosa
+            var canSpeak = this.responseTextPart
+            var remaning = ""
+
+            //divido frase se possibile
             val lastSpaceIndex = this.responseTextPart.lastIndexOf(" ")
-            val (remaning, canSpeak) = this.responseTextPart.takeLast(this.responseTextPart.length - lastSpaceIndex) to this.responseTextPart.take(lastSpaceIndex)
-            Log.i("TTS", "textadd: \"$remaning\"")
+            if (lastSpaceIndex >= 0){
+                var (remaning, canSpeak) = this.responseTextPart.takeLast(this.responseTextPart.length - lastSpaceIndex) to this.responseTextPart.take(lastSpaceIndex)
+                Log.i("TTS", "textadd: \"$remaning\"")
+            }
+
             this.responseTextPart = remaning
             speakText = canSpeak
 
@@ -431,7 +439,7 @@ class MainActivity : AppCompatActivity() {
             params.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, streamToUse)
             params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId)
             if (this.tts != null) {
-                this.tts!!.speak(speakText, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+                this.tts!!.speak(speakText, TextToSpeech.QUEUE_ADD, params, utteranceId)
             }
         }
 

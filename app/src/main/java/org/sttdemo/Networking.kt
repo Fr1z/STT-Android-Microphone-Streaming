@@ -53,6 +53,7 @@ class Networking(private val serverAddress: String, private val port: Int) {
                 val url = URL("https://$serverAddress:$port/api/chat")
                 val connection = url.openConnection() as HttpURLConnection
 
+                connection.readTimeout = 10000
                 connection.requestMethod = "POST"
                 connection.setRequestProperty("Content-Type", "application/json;charset=UTF-8")
 
@@ -89,6 +90,7 @@ class Networking(private val serverAddress: String, private val port: Int) {
                     }
                 }
 
+                Log.e("NETWORK", "Disconnected.")
                 reader.close()
                 connection.disconnect()
             } catch (e: Exception) {
