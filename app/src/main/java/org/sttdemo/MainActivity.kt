@@ -22,12 +22,8 @@ import kotlinx.android.synthetic.main.activity_main.*
 import ai.kitt.snowboy.SnowboyDetect
 import android.webkit.ValueCallback
 import androidx.lifecycle.Observer
-import org.json.JSONException
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
-import org.json.JSONObject
-import org.sttdemo.Networking
-
 
 
 class MainActivity : AppCompatActivity() {
@@ -253,7 +249,7 @@ class MainActivity : AppCompatActivity() {
         networkManager = Networking("127.0.0.1", 1337)
 
         // Inizio dello streaming
-        val jsonDataToSend = "{\"content\": \"Ciao! ti chiedo di essere il più sintentico possibile con le prossime risposte, perfavore tienilo a mente.\"}" // Dati da inviare al server (JSON)
+        val jsonDataToSend = "{\"content\": \"CipCip\"}" // Dati da inviare al server (JSON)
 
         networkManager!!.startStreaming(jsonDataToSend)
         status.append("GPT contattato.\n")
@@ -262,7 +258,13 @@ class MainActivity : AppCompatActivity() {
         networkManager!!.data.observe(this, Observer { receivedData ->
             // Aggiornamento dell'interfaccia utente o gestione dei dati ricevuti
             try {
-                setResponseText( getResponseText() + receivedData )
+                val currentText = getResponseText()
+                Log.i("Leturia", "textpart: \"$currentText\"")
+
+                if (receivedData.toString() != "###"){
+                    setResponseText( currentText + receivedData )
+                }
+
                 Log.i("Networking", "Response: \"$receivedData\"")
                 speakTTS(receivedData as String)
             } catch (e: Exception) {
@@ -394,54 +396,32 @@ class MainActivity : AppCompatActivity() {
     private fun speakTTS(testo: String) {
 
         val streamToUse = AudioManager.STREAM_MUSIC
-        var speakText = ""
 
-        if (testo.endsWith(' ')
+        if (testo != "###") {
+            this.responseTextPart = this.responseTextPart + testo
+        }
+
+        if (testo.endsWith('#')
             || testo.endsWith('.')
             || testo.endsWith('!')
             || testo.endsWith('?')
             || testo.endsWith(')')
             || testo.endsWith(']')
             || testo.endsWith(':')
-            || testo.endsWith(',')
             || testo.endsWith(';')
         ){
-            speakText = this.responseTextPart + testo
-
-            //reset spekpart
-            this.responseTextPart = ""
-        }else{
-
-            //aggiungo alla text part
-            this.responseTextPart = this.responseTextPart + testo
-
-            //posso dire qualcosa
-            var canSpeak = this.responseTextPart
-            var remaning = ""
-
-            //divido frase se possibile
-            val lastSpaceIndex = this.responseTextPart.lastIndexOf(" ")
-            if (lastSpaceIndex >= 0){
-                var (remaning, canSpeak) = this.responseTextPart.takeLast(this.responseTextPart.length - lastSpaceIndex) to this.responseTextPart.take(lastSpaceIndex)
-                Log.i("TTS", "textadd: \"$remaning\"")
-            }
-
-            this.responseTextPart = remaning
-            speakText = canSpeak
-
-        }
-
-        if (speakText.length > 0){
-            Log.i("TTS", "dico: \"$speakText\"")
             val speechPitch = 1.0f
             val utteranceId = "utterance_id"
             val params = Bundle()
             params.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, streamToUse)
             params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId)
             if (this.tts != null) {
-                this.tts!!.speak(speakText, TextToSpeech.QUEUE_ADD, params, utteranceId)
+                this.tts!!.speak(this.responseTextPart, TextToSpeech.QUEUE_ADD, params, utteranceId)
             }
+            //reset responseTextPart
+            this.responseTextPart = ""
         }
+
 
 
     }
@@ -483,17 +463,20 @@ class MainActivity : AppCompatActivity() {
 
     }
 
-    private fun getResponseText():String{
+    private fun getResponseText():String {
         var responseText : String = ""
+
+        responseweb.settings.javaScriptEnabled = true
+
         // Ottieni l'HTML utilizzando evaluateJavascript()
-        response.evaluateJavascript("document.documentElement.outerHTML", ValueCallback { html ->
+        responseweb.evaluateJavascript("document.documentElement.outerHTML", ValueCallback { html ->
             responseText=html
         })
         return responseText
     }
 
     private fun setResponseText(htmlString : String){
-        return response.loadDataWithBaseURL(null, htmlString, "text/html", "UTF-8", null)
+        return responseweb.loadDataWithBaseURL(null, htmlString, "text/html", "UTF-8", null)
     }
 
     override fun onDestroy() {

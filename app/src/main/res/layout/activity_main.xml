@@ -22,7 +22,7 @@
             android:textStyle="bold" />
 
         <WebView
-            android:id="@+id/response"
+            android:id="@+id/responseweb"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_weight="0"

@@ -85,11 +85,18 @@ class Networking(private val serverAddress: String, private val port: Int) {
                             val messageResponse: String = respObj.getString("message")
                             _data.value = messageResponse
                         } catch (e : Exception){
-                            Log.e("NETWORK", "noJson: $receivedData")
+                            if (receivedData != "{}"){
+                                //error occurred
+                                Log.e("NETWORK", "noJson: $receivedData")
+                            } else {
+                                //end talking
+                                _data.value = "###"
+                            }
                         }
                     }
                 }
 
+                //Connection ended
                 Log.e("NETWORK", "Disconnected.")
                 reader.close()
                 connection.disconnect()
