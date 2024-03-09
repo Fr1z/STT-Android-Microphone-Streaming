@@ -20,7 +20,6 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import kotlinx.android.synthetic.main.activity_main.*
 import ai.kitt.snowboy.SnowboyDetect
-import android.webkit.ValueCallback
 import androidx.lifecycle.Observer
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
@@ -70,8 +69,8 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        setupTTS()
         checkPermission()
+        setupTTS()
         setupModelsPath()
         setupNetworkManager()
 
@@ -115,7 +114,7 @@ class MainActivity : AppCompatActivity() {
 
         snowboy?.Reset()
 
-        while (isRecording.get()) {
+        while (isRecording.get() && recorder.state == AudioRecord.RECORDSTATE_RECORDING) {
 
             recorder.read(audioData, 0, audioBufferSize)
 
@@ -143,10 +142,10 @@ class MainActivity : AppCompatActivity() {
                     stopTranscribe()
 
                     // Invio richiesta a GPT
-                    val trascrizione : String = transcription.text.toString()
+                    val trascrizione : String = transcriptionText.text.toString()
                     val jsonDataToSend = "{\"content\": \"$trascrizione\"}" //Invio quello che ho detto al server
 
-                    runOnUiThread { setResponseText("")}
+                    runOnUiThread { responseText.text = ""}
                     networkManager!!.startStreaming(jsonDataToSend)
 
                     //HERE
@@ -173,7 +172,7 @@ class MainActivity : AppCompatActivity() {
                     if (isTranscribing.get() && streamContext != null){
                         model.feedAudioContent(streamContext, audioData, audioData.size)
                         val decoded = model.intermediateDecode(streamContext)
-                        runOnUiThread { transcription.text = decoded }
+                        runOnUiThread { transcriptionText.text = decoded }
                     }
                 }
 
@@ -181,6 +180,9 @@ class MainActivity : AppCompatActivity() {
 
         }
 
+        Log.i("PerceivingThread", "Audio Record not ready, stop recording");
+
+        isRecording.set(false)
         recorder.stop()
         recorder.release()
 
@@ -193,7 +195,7 @@ class MainActivity : AppCompatActivity() {
 
         for (path in listOf(ACTIVE_UMDL, ACTIVE_RES)) {
             if (!File(path).exists()) {
-                status.append("Snowboy creation failed: $path does not exist.\n")
+                statusText.append("Snowboy creation failed: $path does not exist.\n")
                 return false
             }
         }
@@ -224,7 +226,7 @@ class MainActivity : AppCompatActivity() {
 
         for (path in listOf(tfliteModelPath, scorerPath)) {
             if (!File(path).exists()) {
-                status.append("Model creation failed: $path does not exist.\n")
+                statusText.append("Model creation failed: $path does not exist.\n")
                 return false
             }
         }
@@ -252,20 +254,20 @@ class MainActivity : AppCompatActivity() {
         val jsonDataToSend = "{\"content\": \"CipCip\"}" // Dati da inviare al server (JSON)
 
         networkManager!!.startStreaming(jsonDataToSend)
-        status.append("GPT contattato.\n")
+        statusText.append("GPT contattato.\n")
 
         // Osservazione dei cambiamenti nella variabile LiveData
         networkManager!!.data.observe(this, Observer { receivedData ->
             // Aggiornamento dell'interfaccia utente o gestione dei dati ricevuti
             try {
-                val currentText = getResponseText()
-                Log.i("Leturia", "textpart: \"$currentText\"")
+                Log.i("Networking", "Response: \"$receivedData\"")
 
+                //appendi risposta alla textview
                 if (receivedData.toString() != "###"){
-                    setResponseText( currentText + receivedData )
+                    responseText.append(receivedData)
                 }
 
-                Log.i("Networking", "Response: \"$receivedData\"")
+                //aggiungi parte testuale al sintetizzatore vocale
                 speakTTS(receivedData as String)
             } catch (e: Exception) {
                 Log.e("TTS ERROR", "Response Text: $receivedData")
@@ -286,7 +288,7 @@ class MainActivity : AppCompatActivity() {
                 if (type.contains("primary", true)) {
                     this.modelsPath =
                         Environment.getExternalStorageDirectory().toString() + "/" + split[1]
-                    status.text = "Ready. $modelsPath model setted!.\n"
+                    statusText.text = "Ready. $modelsPath model setted!.\n"
                     completeSetupAndStartListening()
                 }
 
@@ -304,14 +306,14 @@ class MainActivity : AppCompatActivity() {
             if (!snowboySetup()) {
                 return
             }
-            status.append("Created snowboy detector.\n")
+            statusText.append("Created snowboy detector.\n")
         }
 
         if (model == null) {
             if (!createModel()) {
                 return
             }
-            status.append("Created model.\n")
+            statusText.append("Created model.\n")
         }
 
         startListening()
@@ -329,7 +331,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun startTranscribe() {
         if (isRecording.get()){
-            transcription.text = ""
+            transcriptionText.text = ""
             btnStartInference.text = "FERMA REGISTRAZIONE"
             btnStartInference.backgroundTintList =
                 ColorStateList.valueOf(Color.parseColor("#F44336")) //bottone rosso
@@ -352,7 +354,7 @@ class MainActivity : AppCompatActivity() {
                 val decoded = model?.intermediateDecode(streamContext)
                 model?.finishStream(streamContext)
 
-                transcription.text = decoded
+                transcriptionText.text = decoded
             }
 
             btnStartInference.text = "REGISTRA"
@@ -432,13 +434,13 @@ class MainActivity : AppCompatActivity() {
             stopTranscribe()
 
             // Invio richiesta a GPT
-            val trascrizione : String = transcription.text.toString()
+            val trascrizione : String = transcriptionText.text.toString()
             val jsonDataToSend = "{\"content\": \"$trascrizione\"}" //Invio quello che ho detto al server
 
 
-            setResponseText("")
+            //pulisci risposta precedente
+            responseText.text = ""
             networkManager!!.startStreaming(jsonDataToSend)
-            //speakTTS(transcription.text as String)
 
 
         } else {
@@ -461,22 +463,6 @@ class MainActivity : AppCompatActivity() {
             ActivityCompat.requestPermissions(this, permissionsToRequest, 3)
         }
 
-    }
-
-    private fun getResponseText():String {
-        var responseText : String = ""
-
-        responseweb.settings.javaScriptEnabled = true
-
-        // Ottieni l'HTML utilizzando evaluateJavascript()
-        responseweb.evaluateJavascript("document.documentElement.outerHTML", ValueCallback { html ->
-            responseText=html
-        })
-        return responseText
-    }
-
-    private fun setResponseText(htmlString : String){
-        return responseweb.loadDataWithBaseURL(null, htmlString, "text/html", "UTF-8", null)
     }
 
     override fun onDestroy() {
