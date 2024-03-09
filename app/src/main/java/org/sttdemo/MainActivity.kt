@@ -114,7 +114,8 @@ class MainActivity : AppCompatActivity() {
 
         snowboy?.Reset()
 
-        while (isRecording.get() && recorder.state == AudioRecord.RECORDSTATE_RECORDING) {
+        //try to fix recording error && recorder.state == AudioRecord.RECORDSTATE_RECORDING
+        while (isRecording.get()) {
 
             recorder.read(audioData, 0, audioBufferSize)
 

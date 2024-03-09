@@ -10,7 +10,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
-        android:padding="60px">
+        android:padding="24dp">
 
         <TextView
             android:id="@+id/labelResponse"
@@ -27,7 +27,9 @@
             android:layout_height="wrap_content"
             android:background="#FFFFFF"
             android:clickable="true"
+            android:drawableStart="@drawable/ic_droid"
             android:fontFamily="sans-serif-medium"
+            android:maxHeight="288dp"
             android:minHeight="48dp"
             android:padding="11dp"
             android:scrollbarStyle="insideInset"
