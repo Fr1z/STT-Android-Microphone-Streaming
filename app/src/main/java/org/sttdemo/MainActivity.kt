@@ -127,7 +127,7 @@ class MainActivity : AppCompatActivity() {
 
                 if (! isTranscribing.get()) { //evita più attivazioni
                     Log.i("Snowboy: ", "Hotword detected!")
-
+                    stopSpeak()
                     startTranscribe()
                 }
             } else if (result == -2) {
@@ -396,6 +396,12 @@ class MainActivity : AppCompatActivity() {
 
     }
 
+    private fun stopSpeak() {
+        if (this.tts != null) {
+            this.tts!!.stop()
+        }
+    }
+
     private fun speakTTS(testo: String) {
 
         val streamToUse = AudioManager.STREAM_MUSIC
@@ -445,6 +451,7 @@ class MainActivity : AppCompatActivity() {
 
 
         } else {
+            stopSpeak()
             startTranscribe()
         }
     }
